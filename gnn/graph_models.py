@@ -98,12 +98,12 @@ class GATv2(pl.LightningModule):
 
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
-        # x = self.lif1(x)
+        x = self.lif1(x)
         
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
-        # x = self.lif2(x)
+        x = self.lif2(x)
         
     
         x = self.conv3(x, edge_index)
@@ -195,17 +195,18 @@ class GCN(pl.LightningModule):
 
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
-        # x = self.lif1(x)
+        x = self.lif1(x)
         # print(x[0])
         
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
-        # x = self.lif2(x)
+        x = self.lif2(x)
         
     
         x = self.conv3(x, edge_index)
         x=self.bn3(x)
+        
         return x
 
 
@@ -230,23 +231,22 @@ class GraphSAGE(pl.LightningModule):
         self.lif2 = neuron.LIFNode()
         
         self.conv3 = SAGEConv(intermediate_dim, intermediate_dim)
-        self.lif3 = neuron.LIFNode()
         self.bn3= LayerNorm(intermediate_dim)
         
         self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode()
+        self.out_lif = neuron.LIFNode() 
 
     def forward(self, x, edge_index, edge_attr=None):
         
 
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
-        # x = self.lif1(x)
+        x = self.lif1(x)
         
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
-        # x = self.lif2(x)
+        x = self.lif2(x)
         
     
         x = self.conv3(x, edge_index)
@@ -281,17 +281,19 @@ class GraphCN(pl.LightningModule):
         self.out_lif = neuron.LIFNode()
 
     def forward(self, x, edge_index, edge_attr=None):
-        
-
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
-        # x = self.lif1(x)
-        
+        x = self.lif1(x)
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
+        x = self.lif2(x)
+        
+        x = self.conv3(x)
+        x = self.bn3(x)
+        
         return x
-        # x = self.lif2(x)
+
 class GIN(pl.LightningModule):
     def __init__(
         self,
@@ -308,21 +310,20 @@ class GIN(pl.LightningModule):
             nn.Sequential(
                 nn.Linear(in_channels, intermediate_dim),
                 nn.LayerNorm(intermediate_dim),
-                # neuron.LIFNode(),
+                neuron.LIFNode(),
                 nn.Linear(intermediate_dim, intermediate_dim),
                 nn.LayerNorm(intermediate_dim),
-                # neuron.LIFNode()
+                neuron.LIFNode()
             )
         )
-
         self.conv2 = GINConv(
             nn.Sequential(
                 nn.Linear(intermediate_dim, intermediate_dim),
                 nn.LayerNorm(intermediate_dim),
-                # neuron.LIFNode(),
+                neuron.LIFNode(),
                 nn.Linear(intermediate_dim, intermediate_dim),
                 nn.LayerNorm(intermediate_dim),
-                # neuron.LIFNode(),
+                neuron.LIFNode(),
             )
         )
         self.lin = nn.Linear(intermediate_dim, out_channels)
