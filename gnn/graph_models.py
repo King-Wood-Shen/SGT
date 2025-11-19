@@ -85,26 +85,17 @@ class GATv2(pl.LightningModule):
         self.lif2 = neuron.LIFNode()
         
         self.conv3 = GATv2Conv(intermediate_dim*4, intermediate_dim)
-        self.lif3 = neuron.LIFNode()
         self.bn3= LayerNorm(intermediate_dim)
         
-        self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode()
-        
-        # self.lif1_count = 
 
     def forward(self, x, edge_index, edge_attr=None):
-        
-
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = self.lif1(x)
-        
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
         x = self.lif2(x)
-        
     
         x = self.conv3(x, edge_index)
         x=self.bn3(x)
@@ -134,29 +125,20 @@ class GAT(pl.LightningModule):
         self.lif2 = neuron.LIFNode()
         
         self.conv3 = GATConv(intermediate_dim*4, intermediate_dim)
-        self.lif3 = neuron.LIFNode()
         self.bn3= LayerNorm(intermediate_dim)
         
-        self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode()
-        # add the 
 
     def forward(self, x, edge_index, edge_attr=None):
-        
-
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = self.lif1(x)
-        
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
         x = self.lif2(x)
-        
     
         x = self.conv3(x, edge_index)
         x=self.bn3(x)  # 归一化后的输出
-
 
         return x
 
@@ -184,25 +166,17 @@ class GCN(pl.LightningModule):
         self.lif2 = neuron.LIFNode()
         
         self.conv3 = GCNConv(intermediate_dim, intermediate_dim)
-        self.lif3 = neuron.LIFNode()
         self.bn3= LayerNorm(intermediate_dim)
-        
-        self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode()
+
 
     def forward(self, x, edge_index, edge_attr=None):
-        
-
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = self.lif1(x)
-        # print(x[0])
-        
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
         x = self.lif2(x)
-        
     
         x = self.conv3(x, edge_index)
         x=self.bn3(x)
@@ -232,23 +206,17 @@ class GraphSAGE(pl.LightningModule):
         
         self.conv3 = SAGEConv(intermediate_dim, intermediate_dim)
         self.bn3= LayerNorm(intermediate_dim)
-        
-        self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode() 
+
 
     def forward(self, x, edge_index, edge_attr=None):
-        
-
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = self.lif1(x)
-        
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
         x = self.lif2(x)
         
-    
         x = self.conv3(x, edge_index)
         x=self.bn3(x)
         return x
@@ -274,11 +242,8 @@ class GraphCN(pl.LightningModule):
         self.lif2 = neuron.LIFNode()
         
         self.conv3 = GraphConv(intermediate_dim, intermediate_dim)
-        self.lif3 = neuron.LIFNode()
         self.bn3= LayerNorm(intermediate_dim)
         
-        self.lin = Linear(intermediate_dim, out_channels)
-        self.out_lif = neuron.LIFNode()
 
     def forward(self, x, edge_index, edge_attr=None):
         x = self.conv1(x, edge_index)
@@ -288,7 +253,7 @@ class GraphCN(pl.LightningModule):
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
         x = self.lif2(x)
-        
+
         x = self.conv3(x)
         x = self.bn3(x)
         
@@ -329,12 +294,7 @@ class GIN(pl.LightningModule):
         self.lin = nn.Linear(intermediate_dim, out_channels)
        
     def forward(self, x, edge_index, edge_attr=None):
-        
-
-        x = self.conv1(x, edge_index)
-
-        
-       
+        x = self.conv1(x, edge_index)       
         x = self.conv2(x, edge_index)
         x = self.lin(x)
         return x
@@ -483,28 +443,6 @@ class Estimator(pl.LightningModule):
         if self.edge_dim:
             # 合并 edge_dim 参数
             gnn_args = {** gnn_args, "edge_dim": edge_dim}
-        # if self.conv_type == "PNA":
-        #     # 合并 train_dataset 参数
-        #     gnn_args = {**gnn_args, "train_dataset": train_dataset_for_PNA}
-        # # if self.conv_type in ["GAT", "GATv2"]:
-        # #     # 合并 GAT 相关参数
-        # #     gnn_args = {** gnn_args, "attn_heads": gat_attn_heads, "dropout": gat_dropout}
-        # if self.conv_type in ["GINDrop"]:
-        #     # 合并 GINDrop 相关参数
-        #     gnn_args = {**gnn_args, "p": 0.2, "num_runs": 40, "use_batch_norm": True}
-
-        # if self.conv_type == "GCN":
-        #     self.gnn_model = GCN(**gnn_args)
-        # elif self.conv_type == "GIN":
-        #     self.gnn_model = GIN(**gnn_args)
-        # elif self.conv_type == "KGNN":
-        #     self.gnn_model = GraphCN(**gnn_args)
-        # elif self.conv_type == "GAT":
-        #     self.gnn_model = GAT(**gnn_args)
-        # elif self.conv_type == "GATv2":
-        #     self.gnn_model = GATv2(**gnn_args)
-        # elif self.conv_type == "GraphSAGE":
-        #     self.gnn_model = GraphSAGE(**gnn_args)
 
         model_class = self.MODEL_REGISTRY.get(self.conv_type)
         if model_class is None:
@@ -520,7 +458,8 @@ class Estimator(pl.LightningModule):
 
         self.output_mlp = nn.Sequential(
             neuron.LIFNode(tau=2.0, detach_reset=True, backend="torch"),
-            nn.Linear(output_mlp_in_dim, linear_output_size)   )
+            nn.Linear(output_mlp_in_dim, linear_output_size)   
+        )
 
         if self.conv_type == "PNA":
             output_node_dim = nearest_multiple_of_five(output_node_dim)
