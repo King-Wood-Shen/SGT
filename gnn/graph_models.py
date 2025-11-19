@@ -90,6 +90,8 @@ class GATv2(pl.LightningModule):
         
         self.lin = Linear(intermediate_dim, out_channels)
         self.out_lif = neuron.LIFNode()
+        
+        # self.lif1_count = 
 
     def forward(self, x, edge_index, edge_attr=None):
         
@@ -137,22 +139,25 @@ class GAT(pl.LightningModule):
         
         self.lin = Linear(intermediate_dim, out_channels)
         self.out_lif = neuron.LIFNode()
+        # add the 
 
     def forward(self, x, edge_index, edge_attr=None):
         
 
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
-        # x = self.lif1(x)
+        x = self.lif1(x)
         
        
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
-        # x = self.lif2(x)
+        x = self.lif2(x)
         
     
         x = self.conv3(x, edge_index)
-        x=self.bn3(x)
+        x=self.bn3(x)  # 归一化后的输出
+
+
         return x
 
 
@@ -374,6 +379,14 @@ class GIN(pl.LightningModule):
 
 
 class Estimator(pl.LightningModule):
+    MODEL_REGISTRY = {
+        "GCN": GCN,
+        "GIN": GIN,
+        "KGNN": GraphCN,
+        "GAT": GAT,
+        "GATv2": GATv2,
+        "GraphSAGE": GraphSAGE,
+    }
     def __init__(
         self,
         task_type: str,
@@ -406,7 +419,6 @@ class Estimator(pl.LightningModule):
         super().__init__()
         assert task_type in ["binary_classification", "multi_classification", "regression"]
         # assert conv_type in ["GCN", "GIN", "PNA", "GAT", "GATv2", "GINDrop"]
-
         self.edge_dim = edge_dim
         self.task_type = task_type
         self.num_features = num_features
@@ -470,34 +482,35 @@ class Estimator(pl.LightningModule):
         if self.edge_dim:
             # 合并 edge_dim 参数
             gnn_args = {** gnn_args, "edge_dim": edge_dim}
-        if self.conv_type == "PNA":
-            # 合并 train_dataset 参数
-            gnn_args = {**gnn_args, "train_dataset": train_dataset_for_PNA}
-        # if self.conv_type in ["GAT", "GATv2"]:
-        #     # 合并 GAT 相关参数
-        #     gnn_args = {** gnn_args, "attn_heads": gat_attn_heads, "dropout": gat_dropout}
-        if self.conv_type in ["GINDrop"]:
-            # 合并 GINDrop 相关参数
-            gnn_args = {**gnn_args, "p": 0.2, "num_runs": 40, "use_batch_norm": True}
+        # if self.conv_type == "PNA":
+        #     # 合并 train_dataset 参数
+        #     gnn_args = {**gnn_args, "train_dataset": train_dataset_for_PNA}
+        # # if self.conv_type in ["GAT", "GATv2"]:
+        # #     # 合并 GAT 相关参数
+        # #     gnn_args = {** gnn_args, "attn_heads": gat_attn_heads, "dropout": gat_dropout}
+        # if self.conv_type in ["GINDrop"]:
+        #     # 合并 GINDrop 相关参数
+        #     gnn_args = {**gnn_args, "p": 0.2, "num_runs": 40, "use_batch_norm": True}
 
-        if self.conv_type == "GCN":
-            self.gnn_model = GCN(**gnn_args)
-        elif self.conv_type == "GIN":
-            self.gnn_model = GIN(**gnn_args)
-        elif self.conv_type == "KGNN":
-            self.gnn_model = GraphCN(**gnn_args)
-        elif self.conv_type == "GAT":
-            self.gnn_model = GAT(**gnn_args)
-        elif self.conv_type == "GATv2":
-            self.gnn_model = GATv2(**gnn_args)
-        elif self.conv_type == "GraphSAGE":
-            self.gnn_model = GraphSAGE(**gnn_args)
-        elif self.conv_type == "GAT":
-            self.gnn_model = GATorGATv2(gat_or_gatv2="GAT", **gnn_args)
-        elif self.conv_type == "GATv2":
-            self.gnn_model = GATorGATv2(gat_or_gatv2="GATv2", **gnn_args)
-        elif self.conv_type == "GINDrop":
-            self.gnn_model = GINDropEncoder(**gnn_args)
+        # if self.conv_type == "GCN":
+        #     self.gnn_model = GCN(**gnn_args)
+        # elif self.conv_type == "GIN":
+        #     self.gnn_model = GIN(**gnn_args)
+        # elif self.conv_type == "KGNN":
+        #     self.gnn_model = GraphCN(**gnn_args)
+        # elif self.conv_type == "GAT":
+        #     self.gnn_model = GAT(**gnn_args)
+        # elif self.conv_type == "GATv2":
+        #     self.gnn_model = GATv2(**gnn_args)
+        # elif self.conv_type == "GraphSAGE":
+        #     self.gnn_model = GraphSAGE(**gnn_args)
+
+        model_class = self.MODEL_REGISTRY.get(self.conv_type)
+        if model_class is None:
+            raise ValueError(f"Unknown conv_type: {self.conv_type}. "
+                            f"Available: {list(self.MODEL_REGISTRY.keys())}")
+
+        self.gnn_model = model_class(**gnn_args)
 
         if self.train_mask is None:
             output_mlp_in_dim = output_node_dim * 3
@@ -505,7 +518,7 @@ class Estimator(pl.LightningModule):
             output_mlp_in_dim = output_node_dim
 
         self.output_mlp = nn.Sequential(
-            # neuron.LIFNode(tau=2.0, detach_reset=True, backend="torch"),
+            neuron.LIFNode(tau=2.0, detach_reset=True, backend="torch"),
             nn.Linear(output_mlp_in_dim, linear_output_size)   )
 
         if self.conv_type == "PNA":
@@ -525,7 +538,7 @@ class Estimator(pl.LightningModule):
 
         # 1. Obtain node embeddings
         prediction_result=[]
-        for i in range (self.T):
+        for _ in range (self.T):
             # print(self.T)
 
             z = self.gnn_model.forward(x, edge_index)
@@ -544,6 +557,7 @@ class Estimator(pl.LightningModule):
 
             # 3. Apply a final classifier
             prediction_result.append(torch.flatten(self.output_mlp(gnn_out)))
+            # self.count_map = {}
         predictions = torch.stack(prediction_result).mean(dim=0)
 
         return z, global_emb_pool, predictions

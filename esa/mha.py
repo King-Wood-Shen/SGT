@@ -90,7 +90,8 @@ class MAB(nn.Module):
             # print(Q.shape,K.shape)
             # 标准缩放点积注意力计算
             # 1. 计算注意力分数: (Q * K^T) / sqrt(head_dim)
-            attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (math.sqrt(head_dim))
+            # attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (math.sqrt(head_dim))
+            attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / head_dim  # right
             
             # 2. 应用掩码（如果有）
             if adj_mask is not None:
@@ -99,8 +100,8 @@ class MAB(nn.Module):
                 attn_scores = attn_scores *adj_mask  # 假设掩码是负值很大的矩阵（如-1e9）用于mask
             
             # 3. 计算注意力权重（softmax归一化）
-            attn_weights = torch.softmax(attn_scores, dim=-1)
-            # attn_weights=attn_scores
+            # attn_weights = torch.softmax(attn_scores, dim=-1)
+            attn_weights=attn_scores
             
             # 4. 应用dropout
             attn_weights = F.dropout(attn_weights, p=self.dropout_p if self.training else 0, training=self.training)
@@ -122,8 +123,8 @@ class MAB(nn.Module):
             out = out.transpose(1, 2).reshape(batch_size, -1, self.num_heads * head_dim)
 
         # print(out.shape)
-        # out = out + F.mish(self.fc_o(self.o_lif(self.out_norm(out))))
-        out = out + F.mish(self.fc_o(out))
+        out = out + F.mish(self.fc_o(self.o_lif(self.out_norm(out)))) 
+        # out = out + F.mish(self.fc_o(out))
         # print(out.shape)
         # print(out.shape)
 
