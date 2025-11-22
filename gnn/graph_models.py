@@ -94,7 +94,8 @@ class LIFActivationTracker:
         for layer_name, timestep_ratios in self.current_forward_stats.items():
             if layer_name not in self.activation_stats:
                 self.activation_stats[layer_name] = []
-            self.activation_stats[layer_name].append(timestep_ratios)
+            # 使用列表切片复制，避免引用问题
+            self.activation_stats[layer_name].append(timestep_ratios[:])
         self.forward_count += 1
     
     def register_hook(self, module, name):
