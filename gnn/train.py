@@ -16,7 +16,6 @@ from pytorch_lightning.loggers import WandbLogger
 # Imports from this project
 sys.path.append(os.path.realpath("."))
 
-from gnn.graph_models import Estimator
 from data_loading.data_loading import get_dataset_train_val_test
 from gnn.config import (
     save_gnn_arguments_to_json,
@@ -81,10 +80,20 @@ def main():
     parser.add_argument("--wandb-project-name", type=str)
     parser.add_argument("--cuda",type=int,default=0)
     parser.add_argument("--T",type=int,default=1)
+    parser.add_argument("--use-full-tracker", action='store_true', 
+                       help="使用完整版追踪器(记录所有训练步)，否则只记录最后一次")
     
 
     args = parser.parse_args()
     log_path = f"./zinc/test_cuda{args.cuda}.log"
+
+    # 根据参数选择使用哪个版本的模型
+    if args.use_full_tracker:
+        from gnn.graph_models_full import Estimator
+        print("✅ 使用完整版追踪器(记录所有训练步)")
+    else:
+        from gnn.graph_models import Estimator
+        print("✅ 使用标准追踪器(只记录最后一次)")
 
     if args.config_json_path:
         argsdict = load_gnn_arguments_from_json(args.config_json_path)
@@ -244,6 +253,21 @@ def main():
     )
     trainer.test(model=model, dataloaders=test_loader, ckpt_path="best")
 
+    # Save LIF activation statistics
+    lif_stats_path = os.path.join(output_save_dir, "lif_activation_stats.json")
+    try:
+        # 检查模型是否有保存方法（判断使用哪个版本）
+        if hasattr(model, 'save_all_lif_stats_to_json'):
+            # graph_models_full.py 版本 - 保存所有训练步
+            model.save_all_lif_stats_to_json(lif_stats_path)
+        elif hasattr(model, 'save_latest_lif_stats_to_json'):
+            # graph_models.py 版本 - 只保存最后一次
+            model.save_latest_lif_stats_to_json(lif_stats_path)
+        else:
+            print("⚠️ 模型不支持LIF统计保存")
+    except Exception as e:
+        print(f"⚠️ LIF统计保存失败: {e}")
+
     # Save test metrics
     preds_path = os.path.join(output_save_dir, "test_y_pred.npy")
     true_path = os.path.join(output_save_dir, "test_y_true.npy")
@@ -254,10 +278,13 @@ def main():
     np.save(metrics_path, model.test_metrics)
     print(model.test_metrics)
     log_content=[]
+    tracker_type = "完整版(所有训练步)" if args.use_full_tracker else "标准版(最后一次)"
+    
     if argsdict['dataset']=='NCI1':
 
         log_content.append(f"----------------------------------------------------------")
         log_content.append(f"模型名称: {argsdict['conv_type']}")
+        log_content.append(f"追踪器类型: {tracker_type}")
         log_content.append(f"种子值: {seed}")
         log_content.append(f"数据集名称: {argsdict['dataset']}")
         log_content.append(f" T: {args.T}") 
@@ -265,6 +292,7 @@ def main():
     elif argsdict['dataset']=='ZINC':
         log_content.append(f"----------------------------------------------------------")
         log_content.append(f"模型名称: {argsdict['conv_type']}")
+        log_content.append(f"追踪器类型: {tracker_type}")
         log_content.append(f"种子值: {seed}")
         log_content.append(f"数据集名称: {argsdict['dataset']}")
         log_content.append(f" T: {args.T}") 
@@ -272,6 +300,7 @@ def main():
     else:
         log_content.append(f"----------------------------------------------------------")
         log_content.append(f"模型名称: {argsdict['conv_type']}")
+        log_content.append(f"追踪器类型: {tracker_type}")
         log_content.append(f"种子值: {seed}")
         log_content.append(f"数据集名称: {argsdict['dataset']}")
         log_content.append(f" T: {args.T}") 
@@ -288,6 +317,10 @@ def main():
     wandb.save(true_path)
     wandb.save(metrics_path)
     wandb.save(config_json_path)
+    
+    # 保存LIF统计文件到wandb
+    if os.path.exists(lif_stats_path):
+        wandb.save(lif_stats_path)
 
     # ckpt_paths = [str(p) for p in Path(output_save_dir).rglob("*.ckpt")]
     # for cp in ckpt_paths:

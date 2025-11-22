@@ -63,9 +63,9 @@ def get_degrees(train_dataset_as_list, out_path):
     return deg
 
 
-# 添加LIF激活统计辅助类
+# 添加LIF激活统计辅助类（完整版 - 记录所有训练步）
 class LIFActivationTracker:
-    """用于追踪LIFNode激活情况的工具类，支持按时间步T记录"""
+    """用于追踪LIFNode激活情况的工具类，支持按时间步T记录，并保存所有训练步"""
     def __init__(self, num_timesteps=4):
         self.num_timesteps = num_timesteps
         self.reset()
@@ -663,102 +663,61 @@ class Estimator(pl.LightningModule):
         """重置LIF激活统计信息"""
         self.lif_tracker.reset()
     
-    def get_lif_stats_by_timestep(self, timestep):
-        """
-        获取指定时间步的最新统计
-        
-        Args:
-            timestep: 时间步索引 (0 到 T-1)
-        
-        Returns:
-            字典，包含各层在指定时间步的非0占比
-        """
-        return self.lif_tracker.get_latest_by_timestep(timestep)
+    def print_lif_activation_stats(self, stat_type='latest'):
+        """打印LIF激活统计信息"""
+        stats = self.get_lif_activation_stats(stat_type)
+        print(f"\n=== LIF激活统计 (类型: {stat_type}) ===")
+        print(f"Forward调用次数: {self.lif_tracker.forward_count}")
+        for layer_name, ratio in sorted(stats.items()):
+            print(f"{layer_name}: {ratio:.4f} ({ratio*100:.2f}%)")
+        print("=" * 50 + "\n")
     
-    def get_lif_timestep_averages(self):
+    def save_all_lif_stats_to_json(self, save_path):
         """
-        获取每个时间步的平均统计
-        
-        Returns:
-            字典，键为层名，值为各时间步的平均非0占比列表
-        """
-        return self.lif_tracker.get_timestep_average_stats()
-    
-    def save_latest_lif_stats_to_json(self, save_path):
-        """
-        保存最后一次forward的LIF激活统计到JSON文件
+        保存所有训练步的LIF激活统计到JSON文件（完整版）
         
         Args:
             save_path: JSON文件保存路径
         """
         import json
         
-        latest_stats = self.lif_tracker.get_latest_stats()
+        all_stats = self.lif_tracker.get_stats()
         
         output = {
             'model_type': self.conv_type,
             'num_timesteps': self.T,
-            'latest_forward': {}
+            'total_forward_count': all_stats['forward_count'],
+            'all_forward_steps': {}
         }
         
-        # 保存最后一次forward的所有时间步数据
-        for layer_name, timestep_list in latest_stats.items():
-            output['latest_forward'][layer_name] = {
+        # 保存每一层每一次forward的所有时间步数据
+        for layer_name, forward_list in all_stats['activation_stats'].items():
+            output['all_forward_steps'][layer_name] = []
+            
+            for forward_idx, timestep_list in enumerate(forward_list):
+                forward_data = {
+                    'forward_idx': forward_idx,
+                    'timesteps': {
+                        f'T{i}': float(val) for i, val in enumerate(timestep_list)
+                    }
+                }
+                output['all_forward_steps'][layer_name].append(forward_data)
+        
+        # 添加统计摘要
+        output['summary'] = {
+            'timestep_averages': {}
+        }
+        
+        timestep_avgs = self.lif_tracker.get_timestep_average_stats()
+        for layer_name, timestep_list in timestep_avgs.items():
+            output['summary']['timestep_averages'][layer_name] = {
                 f'T{i}': float(val) for i, val in enumerate(timestep_list)
             }
         
         with open(save_path, 'w', encoding='utf-8') as f:
             json.dump(output, f, indent=2, ensure_ascii=False)
         
-        print(f"✅ 最后一次LIF激活统计已保存到: {save_path}")
-    
-    def print_lif_activation_stats(self, stat_type='latest', show_timesteps=False):
-        """
-        打印LIF激活统计信息
-        
-        Args:
-            stat_type: 统计类型 ('latest', 'average', 'all')
-            show_timesteps: 是否显示每个时间步的详细统计
-        """
-        if show_timesteps and stat_type == 'latest':
-            # 显示最新一次forward的各时间步详细信息
-            stats = self.lif_tracker.get_latest_stats()
-            print(f"\n=== LIF激活统计 (最新一次forward，按时间步) ===")
-            print(f"Forward调用次数: {self.lif_tracker.forward_count}")
-            print(f"时间步数T: {self.lif_tracker.num_timesteps}")
-            for layer_name in sorted(stats.keys()):
-                timestep_ratios = stats[layer_name]
-                print(f"\n{layer_name}:")
-                for t, ratio in enumerate(timestep_ratios):
-                    print(f"  时间步T{t}: {ratio:.4f} ({ratio*100:.2f}%)")
-            print("=" * 50 + "\n")
-        
-        elif show_timesteps and stat_type == 'average':
-            # 显示每个时间步的平均统计
-            stats = self.lif_tracker.get_timestep_average_stats()
-            print(f"\n=== LIF激活统计 (各时间步平均) ===")
-            print(f"Forward调用次数: {self.lif_tracker.forward_count}")
-            print(f"时间步数T: {self.lif_tracker.num_timesteps}")
-            for layer_name in sorted(stats.keys()):
-                timestep_avgs = stats[layer_name]
-                print(f"\n{layer_name}:")
-                for t, avg in enumerate(timestep_avgs):
-                    print(f"  时间步T{t}平均: {avg:.4f} ({avg*100:.2f}%)")
-            print("=" * 50 + "\n")
-        
-        else:
-            # 显示总体统计（不区分时间步）
-            stats = self.get_lif_activation_stats(stat_type)
-            print(f"\n=== LIF激活统计 (类型: {stat_type}) ===")
-            print(f"Forward调用次数: {self.lif_tracker.forward_count}")
-            for layer_name, value in sorted(stats.items()):
-                if isinstance(value, (int, float)):
-                    print(f"{layer_name}: {value:.4f} ({value*100:.2f}%)")
-                elif isinstance(value, list):
-                    # latest类型返回列表
-                    avg = sum(value) / len(value) if value else 0.0
-                    print(f"{layer_name}: {avg:.4f} ({avg*100:.2f}%) [T步平均]")
-            print("=" * 50 + "\n")
+        print(f"✅ 所有训练步的LIF激活统计已保存到: {save_path}")
 
     def configure_optimizers(self):
         if not self.use_cpu:
