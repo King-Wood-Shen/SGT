@@ -170,281 +170,244 @@ class LIFActivationTracker:
 
 
 
-class GATv2(pl.LightningModule):
-    def __init__(
-        self,
-        in_channels: int,
-        intermediate_dim: int,
-        out_channels: int,
-        num_layers: int,
-        edge_dim: int = None,
-        out_path: str = None,
-    ):
-        super(GATv2, self).__init__()
+# ############# 可复用的GNN组件 ##############
 
-        self.conv1 = GATv2Conv(in_channels, intermediate_dim,heads=4)
-        self.bn1 = LayerNorm(intermediate_dim*4)
-        self.lif1 = neuron.LIFNode()
-        
-        self.conv2 = GATv2Conv(intermediate_dim*4, intermediate_dim,heads=4)
-        self.bn2 = LayerNorm(intermediate_dim*4)
-        self.lif2 = neuron.LIFNode()
-        
-        self.conv3 = GATv2Conv(intermediate_dim*4, intermediate_dim)
-        self.bn3= LayerNorm(intermediate_dim)
-        
-
-    def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = self.lif1(x)
-       
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = self.lif2(x)
+class GNNBlock(nn.Module):
+    """可复用的GNN基础块: Conv + LayerNorm + LIF"""
+    def __init__(self, conv_layer, norm_dim):
+        super().__init__()
+        self.conv = conv_layer
+        self.bn = LayerNorm(norm_dim)
+        self.lif = neuron.LIFNode()
     
-        x = self.conv3(x, edge_index)
-        x=self.bn3(x)
+    def forward(self, x, edge_index, edge_attr=None):
+        # 根据卷积层类型决定是否传入edge_attr
+        if edge_attr is not None and hasattr(self.conv, 'edge_dim'):
+            x = self.conv(x, edge_index, edge_attr)
+        else:
+            x = self.conv(x, edge_index)
+        x = self.bn(x)
+        x = self.lif(x)
         return x
 
-# GNN layers with skip connection
 
-
-class GAT(pl.LightningModule):
+class FlexibleGNN(pl.LightningModule):
+    """
+    灵活的GNN基类，支持动态层数配置
+    统一处理所有GNN类型（GCN, GAT, GATv2, GraphSAGE, GraphCN等）
+    """
     def __init__(
         self,
         in_channels: int,
         intermediate_dim: int,
         out_channels: int,
         num_layers: int,
+        conv_class,
         edge_dim: int = None,
         out_path: str = None,
+        heads: int = 4,  # 用于GAT系列
     ):
-        super(GAT, self).__init__()
-
-        self.conv1 = GATConv(in_channels, intermediate_dim,heads=4)
-        self.bn1 = LayerNorm(intermediate_dim*4)
-        self.lif1 = neuron.LIFNode()
+        super().__init__()
+        self.num_layers = max(num_layers, 2)  # 至少2层
+        self.conv_class = conv_class
+        self.is_gat = conv_class in [GATConv, GATv2Conv]
         
-        self.conv2 = GATConv(intermediate_dim*4, intermediate_dim,heads=4)
-        self.bn2 = LayerNorm(intermediate_dim*4)
-        self.lif2 = neuron.LIFNode()
+        self.blocks = nn.ModuleList()
         
-        self.conv3 = GATConv(intermediate_dim*4, intermediate_dim)
-        self.bn3= LayerNorm(intermediate_dim)
-        
-
-    def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = self.lif1(x)
-       
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = self.lif2(x)
+        if self.is_gat:
+            # GAT系列：前n-1层使用multi-head，最后一层单head输出
+            # 第一层
+            self.blocks.append(
+                GNNBlock(
+                    conv_class(in_channels, intermediate_dim, heads=heads),
+                    intermediate_dim * heads
+                )
+            )
+            
+            # 中间层
+            for _ in range(self.num_layers - 2):
+                self.blocks.append(
+                    GNNBlock(
+                        conv_class(intermediate_dim * heads, intermediate_dim, heads=heads),
+                        intermediate_dim * heads
+                    )
+                )
+            
+            # 最后一层（单head，输出维度）
+            self.final_conv = conv_class(intermediate_dim * heads, out_channels, heads=1)
+            self.final_bn = LayerNorm(out_channels)
+        else:
+            # 普通GNN：所有层维度一致
+            # 第一层
+            self.blocks.append(
+                GNNBlock(
+                    conv_class(in_channels, intermediate_dim),
+                    intermediate_dim
+                )
+            )
+            
+            # 中间层
+            for _ in range(self.num_layers - 2):
+                self.blocks.append(
+                    GNNBlock(
+                        conv_class(intermediate_dim, intermediate_dim),
+                        intermediate_dim
+                    )
+                )
+            
+            # 最后一层
+            self.final_conv = conv_class(intermediate_dim, out_channels)
+            self.final_bn = LayerNorm(out_channels)
     
-        x = self.conv3(x, edge_index)
-        x=self.bn3(x)  # 归一化后的输出
-
-        return x
-
-
-# ############# GNN modules ##############
-
-class GCN(pl.LightningModule):
-    def __init__(
-        self,
-        in_channels: int,
-        intermediate_dim: int,
-        out_channels: int,
-        num_layers: int,
-        edge_dim: int = None,
-        out_path: str = None,
-    ):
-        super(GCN, self).__init__()
-
-        self.conv1 = GCNConv(in_channels, intermediate_dim)
-        self.bn1 = LayerNorm(intermediate_dim)
-        self.lif1 = neuron.LIFNode()
-        
-        self.conv2 = GCNConv(intermediate_dim, intermediate_dim)
-        self.bn2 = LayerNorm(intermediate_dim)
-        self.lif2 = neuron.LIFNode()
-        
-        self.conv3 = GCNConv(intermediate_dim, intermediate_dim)
-        self.bn3= LayerNorm(intermediate_dim)
-
-
     def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = self.lif1(x)
-       
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = self.lif2(x)
-    
-        x = self.conv3(x, edge_index)
-        x=self.bn3(x)
+        # 前n-1层使用GNNBlock（包含LIF激活）
+        for block in self.blocks:
+            x = block(x, edge_index, edge_attr)
+        
+        # 最后一层：只有conv + bn，无LIF
+        if edge_attr is not None and hasattr(self.final_conv, 'edge_dim'):
+            x = self.final_conv(x, edge_index, edge_attr)
+        else:
+            x = self.final_conv(x, edge_index)
+        x = self.final_bn(x)
         
         return x
 
 
-class GraphSAGE(pl.LightningModule):
-    def __init__(
-        self,
-        in_channels: int,
-        intermediate_dim: int,
-        out_channels: int,
-        num_layers: int,
-        edge_dim: int = None,
-        out_path: str = None,
-    ):
-        super(GraphSAGE, self).__init__()
+# ############# 具体GNN模型（使用统一基类） ##############
 
-        self.conv1 = SAGEConv(in_channels, intermediate_dim)
-        self.bn1 = LayerNorm(intermediate_dim)
-        self.lif1 = neuron.LIFNode()
-        
-        self.conv2 = SAGEConv(intermediate_dim, intermediate_dim)
-        self.bn2 = LayerNorm(intermediate_dim)
-        self.lif2 = neuron.LIFNode()
-        
-        self.conv3 = SAGEConv(intermediate_dim, intermediate_dim)
-        self.bn3= LayerNorm(intermediate_dim)
+class GATv2(FlexibleGNN):
+    """GATv2 模型"""
+    def __init__(self, in_channels, intermediate_dim, out_channels, num_layers=3, 
+                 edge_dim=None, out_path=None, heads=4):
+        super().__init__(
+            in_channels=in_channels,
+            intermediate_dim=intermediate_dim,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            conv_class=GATv2Conv,
+            edge_dim=edge_dim,
+            out_path=out_path,
+            heads=heads
+        )
 
 
-    def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = self.lif1(x)
-       
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = self.lif2(x)
-        
-        x = self.conv3(x, edge_index)
-        x=self.bn3(x)
-        return x
+class GAT(FlexibleGNN):
+    """GAT 模型"""
+    def __init__(self, in_channels, intermediate_dim, out_channels, num_layers=3,
+                 edge_dim=None, out_path=None, heads=4):
+        super().__init__(
+            in_channels=in_channels,
+            intermediate_dim=intermediate_dim,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            conv_class=GATConv,
+            edge_dim=edge_dim,
+            out_path=out_path,
+            heads=heads
+        )
 
-class GraphCN(pl.LightningModule):
-    def __init__(
-        self,
-        in_channels: int,
-        intermediate_dim: int,
-        out_channels: int,
-        num_layers: int,
-        edge_dim: int = None,
-        out_path: str = None,
-    ):
-        super(GraphCN, self).__init__()
 
-        self.conv1 = GraphConv(in_channels, intermediate_dim)
-        self.bn1 = LayerNorm(intermediate_dim)
-        self.lif1 = neuron.LIFNode()
-        
-        self.conv2 = GraphConv(intermediate_dim, intermediate_dim)
-        self.bn2 = LayerNorm(intermediate_dim)
-        self.lif2 = neuron.LIFNode()
-        
-        self.conv3 = GraphConv(intermediate_dim, intermediate_dim)
-        self.bn3= LayerNorm(intermediate_dim)
-        
+class GCN(FlexibleGNN):
+    """GCN 模型"""
+    def __init__(self, in_channels, intermediate_dim, out_channels, num_layers=3,
+                 edge_dim=None, out_path=None):
+        super().__init__(
+            in_channels=in_channels,
+            intermediate_dim=intermediate_dim,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            conv_class=GCNConv,
+            edge_dim=edge_dim,
+            out_path=out_path
+        )
 
-    def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)
-        x = self.bn1(x)
-        x = self.lif1(x)
-       
-        x = self.conv2(x, edge_index)
-        x = self.bn2(x)
-        x = self.lif2(x)
 
-        x = self.conv3(x)
-        x = self.bn3(x)
-        
-        return x
+class GraphSAGE(FlexibleGNN):
+    """GraphSAGE 模型"""
+    def __init__(self, in_channels, intermediate_dim, out_channels, num_layers=3,
+                 edge_dim=None, out_path=None):
+        super().__init__(
+            in_channels=in_channels,
+            intermediate_dim=intermediate_dim,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            conv_class=SAGEConv,
+            edge_dim=edge_dim,
+            out_path=out_path
+        )
+
+
+class GraphCN(FlexibleGNN):
+    """GraphCN 模型"""
+    def __init__(self, in_channels, intermediate_dim, out_channels, num_layers=3,
+                 edge_dim=None, out_path=None):
+        super().__init__(
+            in_channels=in_channels,
+            intermediate_dim=intermediate_dim,
+            out_channels=out_channels,
+            num_layers=num_layers,
+            conv_class=GraphConv,
+            edge_dim=edge_dim,
+            out_path=out_path
+        )
+
 
 class GIN(pl.LightningModule):
+    """
+    GIN 模型（特殊结构，使用MLP作为聚合函数）
+    保持原有的双MLP结构
+    """
     def __init__(
         self,
         in_channels: int,
         intermediate_dim: int,
         out_channels: int,
-        num_layers: int,
+        num_layers: int = 2,
         edge_dim: int = None,
         out_path: str = None,
     ):
-        super(GIN, self).__init__()
-
-        self.conv1 = GINConv(
-            nn.Sequential(
-                nn.Linear(in_channels, intermediate_dim),
-                nn.LayerNorm(intermediate_dim),
-                neuron.LIFNode(),
-                nn.Linear(intermediate_dim, intermediate_dim),
-                nn.LayerNorm(intermediate_dim),
-                neuron.LIFNode()
+        super().__init__()
+        self.num_layers = max(num_layers, 2)
+        self.convs = nn.ModuleList()
+        
+        # 第一层GIN
+        self.convs.append(
+            GINConv(
+                nn.Sequential(
+                    nn.Linear(in_channels, intermediate_dim),
+                    nn.LayerNorm(intermediate_dim),
+                    neuron.LIFNode(),
+                    nn.Linear(intermediate_dim, intermediate_dim),
+                    nn.LayerNorm(intermediate_dim),
+                    neuron.LIFNode()
+                )
             )
         )
-        self.conv2 = GINConv(
-            nn.Sequential(
-                nn.Linear(intermediate_dim, intermediate_dim),
-                nn.LayerNorm(intermediate_dim),
-                neuron.LIFNode(),
-                nn.Linear(intermediate_dim, intermediate_dim),
-                nn.LayerNorm(intermediate_dim),
-                neuron.LIFNode(),
+        
+        # 中间层GIN
+        for _ in range(self.num_layers - 1):
+            self.convs.append(
+                GINConv(
+                    nn.Sequential(
+                        nn.Linear(intermediate_dim, intermediate_dim),
+                        nn.LayerNorm(intermediate_dim),
+                        neuron.LIFNode(),
+                        nn.Linear(intermediate_dim, intermediate_dim),
+                        nn.LayerNorm(intermediate_dim),
+                        neuron.LIFNode()
+                    )
+                )
             )
-        )
+        
+        # 输出层
         self.lin = nn.Linear(intermediate_dim, out_channels)
-       
+    
     def forward(self, x, edge_index, edge_attr=None):
-        x = self.conv1(x, edge_index)       
-        x = self.conv2(x, edge_index)
+        for conv in self.convs:
+            x = conv(x, edge_index)
         x = self.lin(x)
         return x
-# class GraphCN(pl.LightningModule):
-#     def __init__(
-#         self,
-#         in_channels: int,
-#         intermediate_dim: int,
-#         out_channels: int,
-#         num_layers: int,
-#         edge_dim: int = None,
-#         out_path: str = None,
-#     ):
-#         super(GraphCN, self).__init__()
-
-#         self.conv1 = GraphConv(in_channels, intermediate_dim)
-#         self.bn1 = LayerNorm(intermediate_dim)
-#         self.lif1 = neuron.LIFNode()
-        
-#         self.conv2 = GraphConv(intermediate_dim, intermediate_dim)
-#         self.bn2 = LayerNorm(intermediate_dim)
-#         self.lif2 = neuron.LIFNode()
-        
-#         self.conv3 = GraphConv(intermediate_dim, intermediate_dim)
-#         self.lif3 = neuron.LIFNode()
-#         self.bn3= LayerNorm(intermediate_dim)
-        
-#         self.lin = Linear(intermediate_dim, out_channels)
-#         self.out_lif = neuron.LIFNode()
-
-#     def forward(self, x, edge_index, edge_attr=None):
-        
-
-#         x = self.conv1(x, edge_index)
-#         x = self.bn1(x)
-#         x = self.lif1(x)
-        
-       
-#         x = self.conv2(x, edge_index)
-#         x = self.bn2(x)
-#         x = self.lif2(x)
-
-
-
 class Estimator(pl.LightningModule):
     MODEL_REGISTRY = {
         "GCN": GCN,
